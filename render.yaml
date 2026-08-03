@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ntsacom-studios
+    runtime: python
+    buildCommand: chmod +x build.sh && ./build.sh
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    disk:
+      name: photo-storage
+      mountPath: /data/uploads
+      sizeGB: 1

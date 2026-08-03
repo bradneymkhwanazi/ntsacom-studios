@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+
+{% block nav %}
+<nav>
+    <a href="{{ url_for('admin_dashboard') }}" class="brand">📷 Ntsacom Studios</a>
+    <div class="nav-links">
+        <a href="{{ url_for('create_gallery') }}">+ New Gallery</a>
+        <a href="{{ url_for('admin_logout') }}">Logout</a>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<h1 style="margin-top: 20px;">Your Galleries</h1>
+
+{% if galleries %}
+<div class="grid">
+    {% for gallery in galleries %}
+    <div class="card">
+        <h3>{{ gallery['name'] }}</h3>
+        <p style="margin-bottom: 10px;">
+            <span class="badge badge-{{ gallery['package'] }}">
+                {{ gallery['package']|capitalize }}
+                {% if gallery['download_limit'] %} ({{ gallery['download_limit'] }} downloads){% endif %}
+            </span>
+        </p>
+        <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
+            {{ gallery['photo_count'] }} photo{{ 's' if gallery['photo_count'] != 1 }} •
+            {{ gallery['created_at'][:10] }}
+        </p>
+        <a href="{{ url_for('admin_gallery_detail', gallery_id=gallery['id']) }}" class="btn btn-sm">Manage</a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card" style="text-align: center; padding: 60px;">
+    <p style="color: #666; margin-bottom: 20px;">No galleries yet. Create one to get started!</p>
+    <a href="{{ url_for('create_gallery') }}" class="btn">Create Gallery</a>
+</div>
+{% endif %}
+{% endblock %}

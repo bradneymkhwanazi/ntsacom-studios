@@ -1,0 +1,226 @@
+{% extends 'base.html' %}
+{% block title %}{{ gallery['name'] }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    body { background: #1a1a1a; color: #fff; }
+    .container { max-width: 1400px; }
+    .gallery-header {
+        text-align: center;
+        padding: 40px 0 30px;
+        border-bottom: 1px solid #333;
+        margin-bottom: 30px;
+    }
+    .gallery-header h1 { font-size: 28px; margin-bottom: 10px; }
+    .gallery-header .info {
+        font-size: 14px;
+        color: #999;
+    }
+    .downloads-info {
+        background: #2a2a2a;
+        border-radius: 8px;
+        padding: 15px 25px;
+        display: inline-block;
+        margin-top: 15px;
+        font-size: 14px;
+    }
+    .downloads-info .count {
+        font-size: 20px;
+        font-weight: 700;
+        color: #28a745;
+    }
+    .photo-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 15px;
+    }
+    .photo-card {
+        position: relative;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #2a2a2a;
+        transition: transform 0.2s;
+    }
+    .photo-card:hover { transform: scale(1.02); }
+    .photo-card img {
+        width: 100%;
+        aspect-ratio: 1;
+        object-fit: cover;
+        display: block;
+    }
+    .photo-card .actions {
+        padding: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .photo-card .actions span {
+        font-size: 12px;
+        color: #999;
+        max-width: 60%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .btn-download {
+        background: #28a745;
+        color: #fff;
+        padding: 6px 14px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 500;
+        transition: background 0.2s;
+    }
+    .btn-download:hover { background: #218838; }
+    .btn-download.downloaded {
+        background: #6c757d;
+    }
+    .btn-download.disabled {
+        background: #555;
+        pointer-events: none;
+        opacity: 0.6;
+    }
+    .flash { max-width: 600px; margin: 0 auto 20px; }
+    .select-mode-bar {
+        background: #2a2a2a;
+        border-radius: 8px;
+        padding: 15px 25px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .select-mode-bar .selected-count { font-size: 14px; color: #ccc; }
+    .photo-card.selected { outline: 3px solid #28a745; }
+    .photo-card .select-check {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(0,0,0,0.5);
+        border: 2px solid #fff;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        transition: background 0.2s;
+    }
+    .photo-card.selected .select-check {
+        background: #28a745;
+        border-color: #28a745;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="gallery-header">
+    <h1>{{ gallery['name'] }}</h1>
+    <p class="info">{{ photos|length }} photos</p>
+    <div class="downloads-info">
+        {% if downloads_remaining is none %}
+            <span class="count">Unlimited</span> downloads
+        {% else %}
+            <span class="count">{{ downloads_remaining }}</span> of {{ gallery['download_limit'] }} downloads remaining
+        {% endif %}
+    </div>
+</div>
+
+{% if photos %}
+<div class="select-mode-bar">
+    <div>
+        <span class="selected-count"><span id="selected-num">0</span> selected</span>
+    </div>
+    <div>
+        <button class="btn btn-success btn-sm" id="download-selected-btn" onclick="downloadSelected()" style="display:none;">
+            Download Selected
+        </button>
+    </div>
+</div>
+
+<div class="photo-grid">
+    {% for photo in photos %}
+    <div class="photo-card" data-photo-id="{{ photo['id'] }}" onclick="toggleSelect(this)">
+        <div class="select-check">✓</div>
+        <img src="{{ url_for('serve_thumbnail', filename=photo['filename']) }}" alt="{{ photo['original_name'] }}">
+        <div class="actions">
+            <span>{{ photo['original_name'] }}</span>
+            {% if photo['id'] in downloaded_ids %}
+                <a href="{{ url_for('download_photo', token=gallery['token'], photo_id=photo['id']) }}"
+                   class="btn-download downloaded" onclick="event.stopPropagation();">Re-download</a>
+            {% elif downloads_remaining is none or downloads_remaining > 0 %}
+                <a href="{{ url_for('download_photo', token=gallery['token'], photo_id=photo['id']) }}"
+                   class="btn-download" onclick="event.stopPropagation();">Download</a>
+            {% else %}
+                <span class="btn-download disabled">Limit reached</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div style="text-align: center; padding: 60px; color: #999;">
+    <p>No photos in this gallery yet. Check back soon!</p>
+</div>
+{% endif %}
+
+<script>
+const token = "{{ gallery['token'] }}";
+const downloadedIds = {{ downloaded_ids | tojson }};
+const remaining = {{ 'null' if downloads_remaining is none else downloads_remaining }};
+let selectedIds = new Set();
+
+function toggleSelect(card) {
+    const id = parseInt(card.dataset.photoId);
+    if (selectedIds.has(id)) {
+        selectedIds.delete(id);
+        card.classList.remove('selected');
+    } else {
+        selectedIds.add(id);
+        card.classList.add('selected');
+    }
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    document.getElementById('selected-num').textContent = selectedIds.size;
+    const btn = document.getElementById('download-selected-btn');
+    btn.style.display = selectedIds.size > 0 ? 'inline-block' : 'none';
+
+    // Check limit
+    if (remaining !== null) {
+        const newDownloads = [...selectedIds].filter(id => !downloadedIds.includes(id)).length;
+        if (newDownloads > remaining) {
+            btn.textContent = `Exceeds limit (${newDownloads} new, ${remaining} left)`;
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+        } else {
+            btn.textContent = `Download Selected (${selectedIds.size})`;
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    } else {
+        btn.textContent = `Download Selected (${selectedIds.size})`;
+    }
+}
+
+function downloadSelected() {
+    selectedIds.forEach(id => {
+        const link = document.createElement('a');
+        link.href = `/gallery/${token}/download/${id}`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        // Stagger downloads to avoid browser blocking
+        setTimeout(() => {
+            link.click();
+            document.body.removeChild(link);
+        }, 100);
+    });
+    // Reload after a delay to update counts
+    setTimeout(() => window.location.reload(), 2000);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Create Gallery{% endblock %}
+
+{% block nav %}
+<nav>
+    <a href="{{ url_for('admin_dashboard') }}" class="brand">📷 Ntsacom Studios</a>
+    <div class="nav-links">
+        <a href="{{ url_for('admin_dashboard') }}">← Back</a>
+        <a href="{{ url_for('admin_logout') }}">Logout</a>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 500px; margin: 40px auto;">
+    <div class="card">
+        <h2>Create New Gallery</h2>
+        <form method="POST">
+            <label for="name">Gallery Name</label>
+            <input type="text" id="name" name="name" placeholder="e.g. Johnson Wedding 2026" required>
+
+            <label for="package">Download Package</label>
+            <select id="package" name="package">
+                <option value="unlimited">Unlimited Downloads</option>
+                <option value="50">50 Downloads</option>
+                <option value="20">20 Downloads</option>
+            </select>
+
+            <label for="customer_email">Customer Email (optional)</label>
+            <input type="text" id="customer_email" name="customer_email" placeholder="customer@email.com">
+
+            <button type="submit" class="btn" style="width: 100%; margin-top: 10px;">Create Gallery</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
