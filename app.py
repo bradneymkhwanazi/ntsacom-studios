@@ -16,7 +16,15 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+
+def hash_password(password):
+    return generate_password_hash(password, method='pbkdf2:sha256')
+
 from PIL import Image, ImageDraw, ImageFont
+from drive_storage import (
+    is_drive_enabled, upload_to_drive, download_from_drive,
+    delete_from_drive, make_file_public, get_drive_download_url
+)
 
 app = Flask(__name__)
 
@@ -93,6 +101,7 @@ def init_db():
             gallery_id INTEGER NOT NULL,
             filename TEXT NOT NULL,
             original_name TEXT NOT NULL,
+            drive_file_id TEXT,
             uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (gallery_id) REFERENCES galleries(id) ON DELETE CASCADE
         );
@@ -269,7 +278,7 @@ def admin_setup():
         else:
             db.execute(
                 'INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)',
-                (username, generate_password_hash(password))
+                (username, hash_password(password))
             )
             db.commit()
             flash('Admin account created! Please log in.', 'success')
@@ -307,7 +316,7 @@ def create_user():
         try:
             db.execute(
                 'INSERT INTO users (username, password_hash) VALUES (?, ?)',
-                (username, generate_password_hash(password))
+                (username, hash_password(password))
             )
             db.commit()
             flash(f'User "{username}" created', 'success')
@@ -472,9 +481,21 @@ def upload_photos(gallery_id):
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
             create_thumbnail(filepath, filename)
+
+            # Upload to Google Drive if enabled
+            drive_file_id = None
+            if is_drive_enabled():
+                mime_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp', 'tiff': 'image/tiff'}
+                mimetype = mime_map.get(ext, 'image/jpeg')
+                try:
+                    drive_file_id = upload_to_drive(filepath, filename, mimetype)
+                    make_file_public(drive_file_id)
+                except Exception as e:
+                    print(f"Drive upload error: {e}")
+
             db.execute(
-                'INSERT INTO photos (gallery_id, filename, original_name) VALUES (?, ?, ?)',
-                (gallery_id, filename, file.filename)
+                'INSERT INTO photos (gallery_id, filename, original_name, drive_file_id) VALUES (?, ?, ?, ?)',
+                (gallery_id, filename, file.filename, drive_file_id)
             )
             uploaded += 1
     db.commit()
@@ -505,12 +526,15 @@ def send_email_to_customer(gallery_id):
 @login_required
 def delete_gallery(gallery_id):
     db = get_db()
-    photos = db.execute('SELECT filename FROM photos WHERE gallery_id = ?', (gallery_id,)).fetchall()
+    photos = db.execute('SELECT * FROM photos WHERE gallery_id = ?', (gallery_id,)).fetchall()
     for photo in photos:
         for folder in [UPLOAD_FOLDER, THUMBNAIL_FOLDER]:
             path = os.path.join(folder, photo['filename'])
             if os.path.exists(path):
                 os.remove(path)
+        # Delete from Google Drive
+        if is_drive_enabled() and photo['drive_file_id']:
+            delete_from_drive(photo['drive_file_id'])
     db.execute('DELETE FROM invoices WHERE gallery_id = ?', (gallery_id,))
     db.execute('DELETE FROM favourites WHERE gallery_id = ?', (gallery_id,))
     db.execute('DELETE FROM downloads WHERE gallery_id = ?', (gallery_id,))
@@ -532,6 +556,9 @@ def delete_photo(photo_id):
         path = os.path.join(folder, photo['filename'])
         if os.path.exists(path):
             os.remove(path)
+    # Delete from Google Drive
+    if is_drive_enabled() and photo['drive_file_id']:
+        delete_from_drive(photo['drive_file_id'])
     db.execute('DELETE FROM favourites WHERE photo_id = ?', (photo_id,))
     db.execute('DELETE FROM downloads WHERE photo_id = ?', (photo_id,))
     db.execute('DELETE FROM photos WHERE id = ?', (photo_id,))
@@ -658,6 +685,12 @@ def download_photo(token, photo_id):
             (gallery['id'], photo_id)
         )
         db.commit()
+
+    # Serve from Google Drive if available, otherwise local
+    if is_drive_enabled() and photo['drive_file_id']:
+        buffer = download_from_drive(photo['drive_file_id'])
+        return send_file(buffer, mimetype='application/octet-stream',
+                         as_attachment=True, download_name=photo['original_name'])
 
     return send_from_directory(
         app.config['UPLOAD_FOLDER'], photo['filename'],

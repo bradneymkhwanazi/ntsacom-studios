@@ -6,3 +6,4 @@ uploads/
 .DS_Store
 .env
 *.log
+credentials.json
