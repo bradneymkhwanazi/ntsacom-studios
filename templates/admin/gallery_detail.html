@@ -1,150 +1,91 @@
 {% extends 'base.html' %}
-{% block title %}{{ gallery['name'] }}{% endblock %}
-
+{% block title %}{{ gallery['name'] }} — Ntsacom Studios{% endblock %}
 {% block nav %}
 <nav>
     <a href="{{ url_for('admin_dashboard') }}" class="brand">📷 Ntsacom Studios</a>
     <div class="nav-links">
         <a href="{{ url_for('admin_dashboard') }}">← Dashboard</a>
+        <a href="{{ url_for('admin_analytics') }}">Analytics</a>
         <a href="{{ url_for('admin_logout') }}">Logout</a>
     </div>
 </nav>
 {% endblock %}
-
 {% block extra_css %}
 <style>
-    .share-box {
-        background: #f8f9fa;
-        border: 1px solid #e9ecef;
-        border-radius: 6px;
-        padding: 15px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 20px;
-    }
-    .share-box input {
-        flex: 1;
-        margin-bottom: 0;
-        background: #fff;
-    }
-    .photo-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 15px;
-    }
-    .photo-item {
-        position: relative;
-        border-radius: 8px;
-        overflow: hidden;
-        aspect-ratio: 1;
-    }
-    .photo-item img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-    .photo-item .overlay {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: linear-gradient(transparent, rgba(0,0,0,0.7));
-        padding: 10px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .photo-item .overlay span {
-        color: #fff;
-        font-size: 11px;
-        max-width: 60%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .upload-zone {
-        border: 2px dashed #ddd;
-        border-radius: 8px;
-        padding: 40px;
-        text-align: center;
-        margin-bottom: 20px;
-        cursor: pointer;
-        transition: border-color 0.2s;
-    }
+    .share-box { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 15px; display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+    .share-box input { flex: 1; margin-bottom: 0; background: #fff; }
+    .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; }
+    .photo-item { position: relative; border-radius: 8px; overflow: hidden; aspect-ratio: 1; }
+    .photo-item img { width: 100%; height: 100%; object-fit: cover; }
+    .photo-item .overlay { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.7)); padding: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .photo-item .overlay span { color: #fff; font-size: 11px; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .upload-zone { border: 2px dashed #ddd; border-radius: 8px; padding: 40px; text-align: center; margin-bottom: 20px; cursor: pointer; transition: border-color 0.2s; }
     .upload-zone:hover { border-color: #999; }
-    .stats { display: flex; gap: 30px; margin-bottom: 20px; }
+    .stats { display: flex; gap: 30px; margin-bottom: 20px; flex-wrap: wrap; }
     .stat { text-align: center; }
     .stat .number { font-size: 24px; font-weight: 700; }
     .stat .label { font-size: 12px; color: #666; }
+    .fav-badge { background: #ffe0e6; color: #d63384; padding: 2px 6px; border-radius: 4px; font-size: 10px; position: absolute; top: 8px; left: 8px; }
 </style>
 {% endblock %}
-
 {% block content %}
 <div style="margin-top: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h1>{{ gallery['name'] }}</h1>
-        <form method="POST" action="{{ url_for('delete_gallery', gallery_id=gallery['id']) }}"
-              onsubmit="return confirm('Delete this gallery and all photos? This cannot be undone.')">
+        <h1>{{ gallery['name'] }}
+            {% if is_expired %}<span class="badge badge-expired">Expired</span>{% endif %}
+        </h1>
+        <form method="POST" action="{{ url_for('delete_gallery', gallery_id=gallery['id']) }}" onsubmit="return confirm('Delete this gallery and all photos?')">
             <button type="submit" class="btn btn-danger btn-sm">Delete Gallery</button>
         </form>
     </div>
 
     <div class="card">
         <div class="stats">
-            <div class="stat">
-                <div class="number">{{ photos|length }}</div>
-                <div class="label">Photos</div>
-            </div>
-            <div class="stat">
-                <div class="number">{{ download_count }}</div>
-                <div class="label">Downloads Used</div>
-            </div>
-            <div class="stat">
-                <div class="number">
-                    {% if gallery['download_limit'] %}
-                        {{ gallery['download_limit'] - download_count }}
-                    {% else %}
-                        ∞
-                    {% endif %}
-                </div>
-                <div class="label">Remaining</div>
-            </div>
-            <div class="stat">
-                <div class="number">
-                    <span class="badge badge-{{ gallery['package'] }}">{{ gallery['package']|capitalize }}</span>
-                </div>
-                <div class="label">Package</div>
-            </div>
+            <div class="stat"><div class="number">{{ photos|length }}</div><div class="label">Photos</div></div>
+            <div class="stat"><div class="number">{{ download_count }}</div><div class="label">Downloads</div></div>
+            <div class="stat"><div class="number">{% if gallery['download_limit'] %}{{ gallery['download_limit'] - download_count }}{% else %}∞{% endif %}</div><div class="label">Remaining</div></div>
+            <div class="stat"><div class="number"><span class="badge badge-{{ gallery['package'] }}">{{ gallery['package']|capitalize }}</span></div><div class="label">Package</div></div>
         </div>
+
+        {% if gallery['password'] %}<p style="font-size:13px;color:#666;margin-bottom:10px;">🔒 Password protected: <code>{{ gallery['password'] }}</code></p>{% endif %}
+        {% if gallery['expires_at'] %}<p style="font-size:13px;color:#666;margin-bottom:10px;">⏰ Expires: {{ gallery['expires_at'][:10] }}</p>{% endif %}
+
+        {% if invoice %}
+        <p style="font-size:13px;margin-bottom:10px;">
+            💰 Invoice: R{{ "%.2f"|format(invoice['amount']) }} —
+            <span class="badge badge-{{ invoice['status'] }}">{{ invoice['status']|capitalize }}</span>
+            {% if invoice['status'] == 'pending' %}
+            <form method="POST" action="{{ url_for('mark_paid', gallery_id=gallery['id']) }}" style="display:inline;">
+                <button type="submit" class="btn btn-success btn-sm">Mark Paid</button>
+            </form>
+            {% endif %}
+        </p>
+        {% endif %}
 
         <h3>Share Link</h3>
         <div class="share-box">
             <input type="text" id="share-url" value="{{ share_url }}" readonly>
-            <button class="btn btn-sm" onclick="copyLink()">Copy</button>
+            <button class="btn btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('share-url').value);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)">Copy</button>
         </div>
-
-        {% if gallery['customer_email'] %}
-        <div style="margin-top: 15px; display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 13px; color: #666;">📧 {{ gallery['customer_email'] }}</span>
-            <form method="POST" action="{{ url_for('send_email_to_customer', gallery_id=gallery['id']) }}" style="margin: 0;">
-                <button type="submit" class="btn btn-sm btn-success">Send Link via Email</button>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="{{ whatsapp_link }}" target="_blank" class="btn btn-success btn-sm">📱 WhatsApp</a>
+            {% if gallery['customer_email'] %}
+            <form method="POST" action="{{ url_for('send_email_to_customer', gallery_id=gallery['id']) }}" style="margin:0;">
+                <button type="submit" class="btn btn-sm">📧 Email to {{ gallery['customer_email'] }}</button>
             </form>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 
     <div class="card">
         <h3>Upload Photos</h3>
-        <form method="POST" action="{{ url_for('upload_photos', gallery_id=gallery['id']) }}"
-              enctype="multipart/form-data" id="upload-form">
+        <form method="POST" action="{{ url_for('upload_photos', gallery_id=gallery['id']) }}" enctype="multipart/form-data">
             <div class="upload-zone" onclick="document.getElementById('file-input').click()">
                 <p style="font-size: 16px; margin-bottom: 5px;">Click to select photos</p>
                 <p style="font-size: 13px; color: #666;">JPG, PNG, WebP, TIFF • Max 50MB each</p>
                 <p id="file-count" style="font-size: 13px; color: #28a745; margin-top: 10px;"></p>
             </div>
-            <input type="file" id="file-input" name="photos" multiple accept="image/*"
-                   style="display: none;" onchange="showFileCount(this)">
+            <input type="file" id="file-input" name="photos" multiple accept="image/*" style="display: none;" onchange="document.getElementById('file-count').textContent=this.files.length+' file(s) selected';document.getElementById('upload-btn').style.display=this.files.length?'inline-block':'none'">
             <button type="submit" class="btn btn-success" id="upload-btn" style="display: none;">Upload</button>
         </form>
     </div>
@@ -155,12 +96,12 @@
         <div class="photo-grid">
             {% for photo in photos %}
             <div class="photo-item">
+                {% if photo['id'] in favourites %}<span class="fav-badge">❤ {{ favourites[photo['id']] }}</span>{% endif %}
                 <img src="{{ url_for('serve_thumbnail', filename=photo['filename']) }}" alt="{{ photo['original_name'] }}">
                 <div class="overlay">
                     <span>{{ photo['original_name'] }}</span>
-                    <form method="POST" action="{{ url_for('delete_photo', photo_id=photo['id']) }}"
-                          onsubmit="return confirm('Delete this photo?')" style="margin: 0;">
-                        <button type="submit" class="btn btn-danger btn-sm" style="padding: 3px 8px;">✕</button>
+                    <form method="POST" action="{{ url_for('delete_photo', photo_id=photo['id']) }}" onsubmit="return confirm('Delete?')" style="margin:0;">
+                        <button type="submit" class="btn btn-danger btn-sm" style="padding:3px 8px;">✕</button>
                     </form>
                 </div>
             </div>
@@ -169,20 +110,4 @@
     </div>
     {% endif %}
 </div>
-
-<script>
-function copyLink() {
-    const input = document.getElementById('share-url');
-    input.select();
-    navigator.clipboard.writeText(input.value);
-    event.target.textContent = 'Copied!';
-    setTimeout(() => event.target.textContent = 'Copy', 2000);
-}
-
-function showFileCount(input) {
-    const count = input.files.length;
-    document.getElementById('file-count').textContent = count + ' file(s) selected';
-    document.getElementById('upload-btn').style.display = count > 0 ? 'inline-block' : 'none';
-}
-</script>
 {% endblock %}

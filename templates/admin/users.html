@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Users — Ntsacom Studios{% endblock %}
+{% block nav %}
+<nav>
+    <a href="{{ url_for('admin_dashboard') }}" class="brand">📷 Ntsacom Studios</a>
+    <div class="nav-links">
+        <a href="{{ url_for('admin_dashboard') }}">← Dashboard</a>
+        <a href="{{ url_for('admin_logout') }}">Logout</a>
+    </div>
+</nav>
+{% endblock %}
+{% block content %}
+<h1 style="margin-top: 20px;">Manage Users</h1>
+<div class="card">
+    <h3>Add User</h3>
+    <form method="POST" action="{{ url_for('create_user') }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+        <div><label>Username</label><input type="text" name="username" required style="width:200px;margin:0;"></div>
+        <div><label>Password</label><input type="password" name="password" minlength="6" required style="width:200px;margin:0;"></div>
+        <button type="submit" class="btn btn-sm">Add User</button>
+    </form>
+</div>
+<div class="card">
+    <table>
+        <thead><tr><th>Username</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user['username'] }}</td>
+                <td>{{ user['created_at'][:10] }}</td>
+                <td>
+                    {% if user['id'] != session.get('user_id') %}
+                    <form method="POST" action="{{ url_for('delete_user', user_id=user['id']) }}" onsubmit="return confirm('Delete this user?')" style="margin:0;">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                    {% else %}<span style="font-size:12px;color:#666;">You</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

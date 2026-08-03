@@ -1,6 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Admin Login{% endblock %}
-
+{% block title %}Login — Ntsacom Studios{% endblock %}
 {% block content %}
 <div style="max-width: 400px; margin: 80px auto;">
     <div class="card">
@@ -8,10 +7,8 @@
         <form method="POST">
             <label for="username">Username</label>
             <input type="text" id="username" name="username" required>
-
             <label for="password">Password</label>
             <input type="password" id="password" name="password" required>
-
             <button type="submit" class="btn" style="width: 100%; margin-top: 10px;">Login</button>
         </form>
     </div>

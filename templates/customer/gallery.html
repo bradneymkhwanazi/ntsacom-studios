@@ -1,125 +1,47 @@
 {% extends 'base.html' %}
-{% block title %}{{ gallery['name'] }}{% endblock %}
-
+{% block title %}{{ gallery['name'] }} — Ntsacom Studios{% endblock %}
 {% block extra_css %}
 <style>
     body { background: #1a1a1a; color: #fff; }
     .container { max-width: 1400px; }
-    .gallery-header {
-        text-align: center;
-        padding: 40px 0 30px;
-        border-bottom: 1px solid #333;
-        margin-bottom: 30px;
-    }
+    .gallery-header { text-align: center; padding: 40px 0 30px; border-bottom: 1px solid #333; margin-bottom: 30px; }
     .gallery-header h1 { font-size: 28px; margin-bottom: 10px; }
-    .gallery-header .info {
-        font-size: 14px;
-        color: #999;
-    }
-    .downloads-info {
-        background: #2a2a2a;
-        border-radius: 8px;
-        padding: 15px 25px;
-        display: inline-block;
-        margin-top: 15px;
-        font-size: 14px;
-    }
-    .downloads-info .count {
-        font-size: 20px;
-        font-weight: 700;
-        color: #28a745;
-    }
-    .photo-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 15px;
-    }
-    .photo-card {
-        position: relative;
-        border-radius: 8px;
-        overflow: hidden;
-        background: #2a2a2a;
-        transition: transform 0.2s;
-    }
+    .gallery-header .info { font-size: 14px; color: #999; }
+    .downloads-info { background: #2a2a2a; border-radius: 8px; padding: 15px 25px; display: inline-block; margin-top: 15px; font-size: 14px; }
+    .downloads-info .count { font-size: 20px; font-weight: 700; color: #28a745; }
+    .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; }
+    .photo-card { position: relative; border-radius: 8px; overflow: hidden; background: #2a2a2a; transition: transform 0.2s; cursor: pointer; }
     .photo-card:hover { transform: scale(1.02); }
-    .photo-card img {
-        width: 100%;
-        aspect-ratio: 1;
-        object-fit: cover;
-        display: block;
-    }
-    .photo-card .actions {
-        padding: 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .photo-card .actions span {
-        font-size: 12px;
-        color: #999;
-        max-width: 60%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .btn-download {
-        background: #28a745;
-        color: #fff;
-        padding: 6px 14px;
-        border-radius: 4px;
-        text-decoration: none;
-        font-size: 12px;
-        font-weight: 500;
-        transition: background 0.2s;
-    }
+    .photo-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+    .photo-card .actions { padding: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .photo-card .actions span { font-size: 12px; color: #999; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .btn-download { background: #28a745; color: #fff; padding: 6px 14px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: 500; border: none; cursor: pointer; }
     .btn-download:hover { background: #218838; }
-    .btn-download.downloaded {
-        background: #6c757d;
-    }
-    .btn-download.disabled {
-        background: #555;
-        pointer-events: none;
-        opacity: 0.6;
-    }
-    .flash { max-width: 600px; margin: 0 auto 20px; }
-    .select-mode-bar {
-        background: #2a2a2a;
-        border-radius: 8px;
-        padding: 15px 25px;
-        margin-bottom: 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .select-mode-bar .selected-count { font-size: 14px; color: #ccc; }
+    .btn-download.downloaded { background: #6c757d; }
+    .btn-download.disabled { background: #555; pointer-events: none; opacity: 0.6; }
+    .btn-fav { background: none; border: none; font-size: 18px; cursor: pointer; padding: 4px; opacity: 0.5; transition: opacity 0.2s; }
+    .btn-fav:hover, .btn-fav.active { opacity: 1; }
+    .select-mode-bar { background: #2a2a2a; border-radius: 8px; padding: 15px 25px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
     .photo-card.selected { outline: 3px solid #28a745; }
-    .photo-card .select-check {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: rgba(0,0,0,0.5);
-        border: 2px solid #fff;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
-        transition: background 0.2s;
-    }
-    .photo-card.selected .select-check {
-        background: #28a745;
-        border-color: #28a745;
-    }
+    .photo-card .select-check { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.5); border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    .photo-card.selected .select-check { background: #28a745; border-color: #28a745; }
+    /* Lightbox */
+    .lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 1000; align-items: center; justify-content: center; flex-direction: column; }
+    .lightbox.active { display: flex; }
+    .lightbox img { max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 4px; }
+    .lightbox .nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.1); border: none; color: #fff; font-size: 30px; padding: 15px 20px; cursor: pointer; border-radius: 4px; }
+    .lightbox .nav-btn:hover { background: rgba(255,255,255,0.2); }
+    .lightbox .prev { left: 20px; }
+    .lightbox .next { right: 20px; }
+    .lightbox .close-btn { position: absolute; top: 20px; right: 20px; background: none; border: none; color: #fff; font-size: 30px; cursor: pointer; }
+    .lightbox .photo-name { color: #999; margin-top: 15px; font-size: 14px; }
+    .flash { max-width: 600px; margin: 0 auto 20px; }
 </style>
 {% endblock %}
-
 {% block content %}
 <div class="gallery-header">
     <h1>{{ gallery['name'] }}</h1>
-    <p class="info">{{ photos|length }} photos</p>
+    <p class="info">{{ photos|length }} photos • Ntsacom Studios</p>
     <div class="downloads-info">
         {% if downloads_remaining is none %}
             <span class="count">Unlimited</span> downloads
@@ -131,96 +53,117 @@
 
 {% if photos %}
 <div class="select-mode-bar">
-    <div>
-        <span class="selected-count"><span id="selected-num">0</span> selected</span>
-    </div>
-    <div>
-        <button class="btn btn-success btn-sm" id="download-selected-btn" onclick="downloadSelected()" style="display:none;">
-            Download Selected
-        </button>
+    <div><span style="color:#ccc;font-size:14px;"><span id="selected-num">0</span> selected</span></div>
+    <div style="display:flex;gap:10px;">
+        <button class="btn-download" id="download-zip-btn" onclick="downloadZip()" style="display:none;">⬇ Download Zip</button>
     </div>
 </div>
 
 <div class="photo-grid">
     {% for photo in photos %}
-    <div class="photo-card" data-photo-id="{{ photo['id'] }}" onclick="toggleSelect(this)">
-        <div class="select-check">✓</div>
-        <img src="{{ url_for('serve_thumbnail', filename=photo['filename']) }}" alt="{{ photo['original_name'] }}">
+    <div class="photo-card" data-photo-id="{{ photo['id'] }}" data-index="{{ loop.index0 }}">
+        <div class="select-check" onclick="event.stopPropagation();toggleSelect(this.parentElement)">✓</div>
+        <img src="{{ url_for('serve_thumbnail', filename=photo['filename']) }}" alt="{{ photo['original_name'] }}" onclick="openLightbox({{ loop.index0 }})">
         <div class="actions">
             <span>{{ photo['original_name'] }}</span>
-            {% if photo['id'] in downloaded_ids %}
-                <a href="{{ url_for('download_photo', token=gallery['token'], photo_id=photo['id']) }}"
-                   class="btn-download downloaded" onclick="event.stopPropagation();">Re-download</a>
-            {% elif downloads_remaining is none or downloads_remaining > 0 %}
-                <a href="{{ url_for('download_photo', token=gallery['token'], photo_id=photo['id']) }}"
-                   class="btn-download" onclick="event.stopPropagation();">Download</a>
-            {% else %}
-                <span class="btn-download disabled">Limit reached</span>
-            {% endif %}
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn-fav {{ 'active' if photo['id'] in favourite_ids }}" onclick="event.stopPropagation();toggleFav(this, {{ photo['id'] }})" title="Favourite">❤</button>
+                {% if photo['id'] in downloaded_ids %}
+                    <a href="{{ url_for('download_photo', token=gallery['token'], photo_id=photo['id']) }}" class="btn-download downloaded" onclick="event.stopPropagation();">Re-download</a>
+                {% elif downloads_remaining is none or downloads_remaining > 0 %}
+                    <a href="{{ url_for('download_photo', token=gallery['token'], photo_id=photo['id']) }}" class="btn-download" onclick="event.stopPropagation();">Download</a>
+                {% else %}
+                    <span class="btn-download disabled">Limit reached</span>
+                {% endif %}
+            </div>
         </div>
     </div>
     {% endfor %}
 </div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+    <button class="close-btn" onclick="closeLightbox()">✕</button>
+    <button class="nav-btn prev" onclick="navLightbox(-1)">‹</button>
+    <button class="nav-btn next" onclick="navLightbox(1)">›</button>
+    <img id="lightbox-img" src="" alt="">
+    <p class="photo-name" id="lightbox-name"></p>
+</div>
+
 {% else %}
 <div style="text-align: center; padding: 60px; color: #999;">
-    <p>No photos in this gallery yet. Check back soon!</p>
+    <p>No photos yet. Check back soon!</p>
 </div>
 {% endif %}
+{% endblock %}
 
+{% block extra_js %}
 <script>
 const token = "{{ gallery['token'] }}";
 const downloadedIds = {{ downloaded_ids | tojson }};
 const remaining = {{ 'null' if downloads_remaining is none else downloads_remaining }};
+const photos = {{ photos | map(attribute='id') | list | tojson }};
+const thumbs = [{% for p in photos %}"{{ url_for('serve_thumbnail', filename=p['filename']) }}"{% if not loop.last %},{% endif %}{% endfor %}];
+const names = [{% for p in photos %}"{{ p['original_name'] }}"{% if not loop.last %},{% endif %}{% endfor %}];
 let selectedIds = new Set();
+let currentLightbox = 0;
 
 function toggleSelect(card) {
     const id = parseInt(card.dataset.photoId);
-    if (selectedIds.has(id)) {
-        selectedIds.delete(id);
-        card.classList.remove('selected');
-    } else {
-        selectedIds.add(id);
-        card.classList.add('selected');
-    }
-    updateSelectionUI();
-}
-
-function updateSelectionUI() {
+    if (selectedIds.has(id)) { selectedIds.delete(id); card.classList.remove('selected'); }
+    else { selectedIds.add(id); card.classList.add('selected'); }
     document.getElementById('selected-num').textContent = selectedIds.size;
-    const btn = document.getElementById('download-selected-btn');
-    btn.style.display = selectedIds.size > 0 ? 'inline-block' : 'none';
-
-    // Check limit
-    if (remaining !== null) {
-        const newDownloads = [...selectedIds].filter(id => !downloadedIds.includes(id)).length;
-        if (newDownloads > remaining) {
-            btn.textContent = `Exceeds limit (${newDownloads} new, ${remaining} left)`;
-            btn.disabled = true;
-            btn.style.opacity = '0.6';
-        } else {
-            btn.textContent = `Download Selected (${selectedIds.size})`;
-            btn.disabled = false;
-            btn.style.opacity = '1';
-        }
-    } else {
-        btn.textContent = `Download Selected (${selectedIds.size})`;
-    }
+    document.getElementById('download-zip-btn').style.display = selectedIds.size > 0 ? 'inline-block' : 'none';
 }
 
-function downloadSelected() {
-    selectedIds.forEach(id => {
-        const link = document.createElement('a');
-        link.href = `/gallery/${token}/download/${id}`;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        // Stagger downloads to avoid browser blocking
-        setTimeout(() => {
-            link.click();
-            document.body.removeChild(link);
-        }, 100);
-    });
-    // Reload after a delay to update counts
-    setTimeout(() => window.location.reload(), 2000);
+function downloadZip() {
+    const btn = document.getElementById('download-zip-btn');
+    btn.textContent = 'Preparing...';
+    btn.disabled = true;
+    fetch(`/gallery/${token}/download-zip`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({photo_ids: [...selectedIds]})
+    }).then(resp => {
+        if (!resp.ok) return resp.json().then(d => { alert(d.error || 'Error'); throw new Error(); });
+        return resp.blob();
+    }).then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'photos.zip'; a.click();
+        URL.revokeObjectURL(url);
+        setTimeout(() => location.reload(), 1000);
+    }).catch(() => {}).finally(() => { btn.textContent = '⬇ Download Zip'; btn.disabled = false; });
 }
+
+function toggleFav(btn, photoId) {
+    fetch(`/gallery/${token}/favourite/${photoId}`, {method: 'POST'})
+    .then(r => r.json()).then(d => { btn.classList.toggle('active', d.favourited); });
+}
+
+// Lightbox
+function openLightbox(index) {
+    currentLightbox = index;
+    updateLightbox();
+    document.getElementById('lightbox').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('active');
+    document.body.style.overflow = '';
+}
+function navLightbox(dir) {
+    currentLightbox = (currentLightbox + dir + thumbs.length) % thumbs.length;
+    updateLightbox();
+}
+function updateLightbox() {
+    document.getElementById('lightbox-img').src = thumbs[currentLightbox];
+    document.getElementById('lightbox-name').textContent = names[currentLightbox];
+}
+document.addEventListener('keydown', e => {
+    if (!document.getElementById('lightbox').classList.contains('active')) return;
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowLeft') navLightbox(-1);
+    if (e.key === 'ArrowRight') navLightbox(1);
+});
 </script>
 {% endblock %}

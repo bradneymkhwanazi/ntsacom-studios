@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Analytics — Ntsacom Studios{% endblock %}
+{% block nav %}
+<nav>
+    <a href="{{ url_for('admin_dashboard') }}" class="brand">📷 Ntsacom Studios</a>
+    <div class="nav-links">
+        <a href="{{ url_for('admin_dashboard') }}">← Dashboard</a>
+        <a href="{{ url_for('admin_logout') }}">Logout</a>
+    </div>
+</nav>
+{% endblock %}
+{% block extra_css %}
+<style>
+    .stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; }
+    .stat-card { background: #fff; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .stat-card .num { font-size: 32px; font-weight: 700; }
+    .stat-card .lbl { font-size: 13px; color: #666; }
+    .chart-container { background: #fff; border-radius: 8px; padding: 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+    canvas { max-height: 250px; }
+</style>
+{% endblock %}
+{% block content %}
+<h1 style="margin-top: 20px;">Analytics</h1>
+<div class="stat-cards">
+    <div class="stat-card"><div class="num">{{ stats.total_galleries }}</div><div class="lbl">Galleries</div></div>
+    <div class="stat-card"><div class="num">{{ stats.total_photos }}</div><div class="lbl">Photos</div></div>
+    <div class="stat-card"><div class="num">{{ stats.total_downloads }}</div><div class="lbl">Downloads</div></div>
+</div>
+
+<div class="chart-container">
+    <h3>Downloads (Last 30 Days)</h3>
+    <canvas id="downloadsChart"></canvas>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <h3>Most Downloaded Photos</h3>
+        {% if top_photos %}
+        <table>
+            <thead><tr><th>Photo</th><th>Gallery</th><th>Downloads</th></tr></thead>
+            <tbody>
+                {% for photo in top_photos %}
+                <tr><td>{{ photo['original_name'][:30] }}</td><td>{{ photo['gallery_name'] }}</td><td><strong>{{ photo['download_count'] }}</strong></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<p style="color:#666;">No downloads yet.</p>{% endif %}
+    </div>
+    <div class="card">
+        <h3>Most Active Galleries</h3>
+        {% if active_galleries %}
+        <table>
+            <thead><tr><th>Gallery</th><th>Downloads</th></tr></thead>
+            <tbody>
+                {% for g in active_galleries %}
+                <tr><td><a href="{{ url_for('admin_gallery_detail', gallery_id=g['id']) }}">{{ g['name'] }}</a></td><td><strong>{{ g['download_count'] }}</strong></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<p style="color:#666;">No activity yet.</p>{% endif %}
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const data = {{ daily_downloads|safe }};
+const ctx = document.getElementById('downloadsChart').getContext('2d');
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: data.map(d => d.day),
+        datasets: [{label: 'Downloads', data: data.map(d => d.count), backgroundColor: '#333', borderRadius: 4}]
+    },
+    options: {responsive: true, plugins: {legend: {display: false}}, scales: {y: {beginAtZero: true, ticks: {stepSize: 1}}}}
+});
+</script>
+{% endblock %}

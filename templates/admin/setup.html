@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Setup — Ntsacom Studios{% endblock %}
+{% block content %}
+<div style="max-width: 400px; margin: 80px auto;">
+    <div class="card">
+        <h2 style="text-align: center; margin-bottom: 10px;">📷 Ntsacom Studios</h2>
+        <p style="text-align: center; color: #666; margin-bottom: 25px; font-size: 14px;">Create your admin account to get started</p>
+        <form method="POST">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" required>
+            <label for="password">Password (min 6 characters)</label>
+            <input type="password" id="password" name="password" minlength="6" required>
+            <button type="submit" class="btn" style="width: 100%; margin-top: 10px;">Create Account</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
