@@ -100,7 +100,7 @@
             </p>
             {% if gallery['customer_email'] %}
             <form method="POST" action="{{ url_for('deliver_selections', gallery_id=gallery['id']) }}" style="margin:0;">
-                <button type="submit" class="btn btn-success" onclick="return confirm('Send {{ selected_photo_ids|length }} selected photos to {{ gallery[\'customer_email\'] }}?')">
+                <button type="submit" class="btn btn-success" onclick="return confirm('Send ' + '{{ selected_photo_ids|length }}' + ' selected photos to ' + '{{ gallery.customer_email }}' + '?')">
                     📧 Send Selected Photos to {{ gallery['customer_email'] }}
                 </button>
             </form>
