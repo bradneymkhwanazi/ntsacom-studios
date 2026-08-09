@@ -170,6 +170,24 @@ def init_db():
             FOREIGN KEY (gallery_id) REFERENCES galleries(id)
         );
 
+        CREATE TABLE IF NOT EXISTS selections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gallery_id INTEGER NOT NULL,
+            session_id TEXT NOT NULL,
+            submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            notified INTEGER DEFAULT 0,
+            FOREIGN KEY (gallery_id) REFERENCES galleries(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gallery_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            photo_ids TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (gallery_id) REFERENCES galleries(id)
+        );
+
         -- Performance indexes
         CREATE INDEX IF NOT EXISTS idx_photos_gallery ON photos(gallery_id);
         CREATE INDEX IF NOT EXISTS idx_downloads_gallery ON downloads(gallery_id);
@@ -177,6 +195,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_favourites_gallery_session ON favourites(gallery_id, session_id);
         CREATE INDEX IF NOT EXISTS idx_galleries_token ON galleries(token);
         CREATE INDEX IF NOT EXISTS idx_invoices_gallery ON invoices(gallery_id);
+        CREATE INDEX IF NOT EXISTS idx_selections_gallery ON selections(gallery_id);
     ''')
     db.commit()
 
@@ -513,11 +532,24 @@ def admin_gallery_detail(gallery_id):
         'SELECT photo_id, COUNT(*) as count FROM favourites WHERE gallery_id = ? GROUP BY photo_id ORDER BY count DESC',
         (gallery_id,)
     ).fetchall()
+    # Check if selections have been submitted
+    selection = db.execute(
+        'SELECT * FROM selections WHERE gallery_id = ? ORDER BY submitted_at DESC LIMIT 1',
+        (gallery_id,)
+    ).fetchone()
+    # Get selected photo IDs (from favourites)
+    selected_photo_ids = set()
+    if selection:
+        selected_photo_ids = set(row['photo_id'] for row in db.execute(
+            'SELECT DISTINCT photo_id FROM favourites WHERE gallery_id = ?',
+            (gallery_id,)
+        ).fetchall())
     return render_template('admin/gallery_detail.html',
         gallery=gallery, photos=photos, download_count=download_count,
         share_url=share_url, whatsapp_link=whatsapp_link, invoice=invoice,
         favourites={r['photo_id']: r['count'] for r in favourites},
-        is_expired=is_gallery_expired(gallery)
+        is_expired=is_gallery_expired(gallery),
+        selection=selection, selected_photo_ids=selected_photo_ids
     )
 
 
@@ -640,6 +672,87 @@ def mark_paid(gallery_id):
     return redirect(url_for('admin_gallery_detail', gallery_id=gallery_id))
 
 
+@app.route('/admin/gallery/<int:gallery_id>/deliver-selections', methods=['POST'])
+@login_required
+def deliver_selections(gallery_id):
+    """Send selected photos to the customer via a download link."""
+    db = get_db()
+    gallery = db.execute('SELECT * FROM galleries WHERE id = ?', (gallery_id,)).fetchone()
+    if not gallery:
+        abort(404)
+
+    email = gallery['customer_email']
+    if not email:
+        flash('No customer email set for this gallery.', 'error')
+        return redirect(url_for('admin_gallery_detail', gallery_id=gallery_id))
+
+    # Get selected photos
+    selected_photos = db.execute(
+        '''SELECT DISTINCT p.* FROM photos p
+           JOIN favourites f ON f.photo_id = p.id
+           WHERE f.gallery_id = ?''',
+        (gallery_id,)
+    ).fetchall()
+
+    if not selected_photos:
+        flash('No selections found.', 'error')
+        return redirect(url_for('admin_gallery_detail', gallery_id=gallery_id))
+
+    # Create a delivery token for download access
+    delivery_token = uuid.uuid4().hex[:16]
+    db.execute(
+        '''INSERT INTO deliveries (gallery_id, token, photo_ids)
+           VALUES (?, ?, ?)''',
+        (gallery_id, delivery_token, json.dumps([p['id'] for p in selected_photos]))
+    )
+    db.commit()
+
+    # Send email with download link
+    download_url = request.host_url.rstrip('/') + f'/delivery/{delivery_token}'
+    _send_delivery_email(email, gallery['name'], download_url, len(selected_photos))
+
+    flash(f'Delivery link sent to {email} ({len(selected_photos)} photos)!', 'success')
+    return redirect(url_for('admin_gallery_detail', gallery_id=gallery_id))
+
+
+def _send_delivery_email(to_email, gallery_name, download_url, photo_count):
+    """Send delivery email to customer with download link."""
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASSWORD, to_email]):
+        return False
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f'Your selected photos are ready! — {gallery_name}'
+    msg['From'] = EMAIL_FROM or SMTP_USER
+    msg['To'] = to_email
+
+    text_body = (
+        f'Great news!\n\n'
+        f'Your {photo_count} selected photos from "{gallery_name}" are ready for download.\n\n'
+        f'Download here: {download_url}\n\n'
+        f'Thank you for choosing Ntsacom Studios!'
+    )
+    html_body = f'''<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;text-align:center;">
+    <h1>📷 Ntsacom Studios</h1>
+    <p>Your <strong>{photo_count} selected photos</strong> from <strong>{gallery_name}</strong> are ready!</p>
+    <a href="{download_url}" style="display:inline-block;background:#e74c6f;color:#fff;padding:14px 30px;border-radius:6px;text-decoration:none;margin:20px 0;font-weight:600;">Download Your Photos</a>
+    <p style="color:#666;font-size:13px;">Thank you for choosing Ntsacom Studios ❤️</p>
+    </body></html>'''
+
+    msg.attach(MIMEText(text_body, 'plain'))
+    msg.attach(MIMEText(html_body, 'html'))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+        logger.info(f"Delivery email sent to {to_email} for '{gallery_name}'")
+        return True
+    except Exception as e:
+        logger.error(f"Delivery email error: {e}")
+        return False
+
+
 # ─── Customer Routes ────────────────────────────────────────────────────────────
 
 @app.route('/gallery/<token>/auth', methods=['GET', 'POST'])
@@ -703,11 +816,16 @@ def customer_gallery(token):
         (gallery['id'], sid)
     ).fetchall()]
 
+    # Check if selections have been submitted
+    selections_submitted = db.execute(
+        'SELECT id FROM selections WHERE gallery_id = ? AND session_id = ?',
+        (gallery['id'], sid)
+    ).fetchone() is not None
+
     return render_template('customer/gallery.html',
         gallery=gallery, photos=photos,
-        downloads_remaining=downloads_remaining,
-        downloaded_ids=downloaded_ids,
-        favourite_ids=favourite_ids
+        favourite_ids=favourite_ids,
+        selections_submitted=selections_submitted
     )
 
 
@@ -843,6 +961,129 @@ def toggle_favourite(token, photo_id):
 
     db.commit()
     return jsonify({'favourited': favourited})
+
+
+@app.route('/gallery/<token>/submit-selections', methods=['POST'])
+def submit_selections(token):
+    db = get_db()
+    gallery = db.execute('SELECT * FROM galleries WHERE token = ?', (token,)).fetchone()
+    if not gallery:
+        abort(404)
+
+    sid = session.get('_id', 'anon')
+
+    # Check if already submitted
+    existing = db.execute(
+        'SELECT id FROM selections WHERE gallery_id = ? AND session_id = ?',
+        (gallery['id'], sid)
+    ).fetchone()
+    if existing:
+        return jsonify({'error': 'Selections already submitted'}), 400
+
+    # Get the liked photos for this session
+    liked_photos = db.execute(
+        'SELECT photo_id FROM favourites WHERE gallery_id = ? AND session_id = ?',
+        (gallery['id'], sid)
+    ).fetchall()
+
+    if not liked_photos:
+        return jsonify({'error': 'No photos selected'}), 400
+
+    # Record the submission
+    db.execute(
+        'INSERT INTO selections (gallery_id, session_id) VALUES (?, ?)',
+        (gallery['id'], sid)
+    )
+    db.commit()
+
+    # Notify photographer via email
+    photo_count = len(liked_photos)
+    _notify_photographer_selections(gallery, photo_count)
+
+    logger.info(f"Selections submitted for gallery '{gallery['name']}' ({photo_count} photos)")
+    return jsonify({'success': True, 'count': photo_count})
+
+
+def _notify_photographer_selections(gallery, photo_count):
+    """Send email to photographer when customer submits selections."""
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASSWORD]):
+        return False
+
+    # Send to the admin email (SMTP_USER)
+    to_email = EMAIL_FROM or SMTP_USER
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f'🎉 Selections received — {gallery["name"]}'
+    msg['From'] = EMAIL_FROM or SMTP_USER
+    msg['To'] = to_email
+
+    customer_info = gallery['customer_email'] or 'A customer'
+    text_body = (
+        f'{customer_info} has submitted their photo selections for "{gallery["name"]}".\n\n'
+        f'{photo_count} photo(s) were selected.\n\n'
+        f'Log in to your admin panel to view and deliver the selected photos.'
+    )
+    html_body = f'''<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+    <h2>🎉 New Selections Received</h2>
+    <p><strong>{customer_info}</strong> has submitted their selections for <strong>{gallery["name"]}</strong>.</p>
+    <p style="font-size:24px;text-align:center;padding:20px;background:#f8f9fa;border-radius:8px;">
+        ❤️ <strong>{photo_count}</strong> photo(s) selected
+    </p>
+    <p>Log in to your admin panel to view the selections and deliver the photos.</p>
+    </body></html>'''
+
+    msg.attach(MIMEText(text_body, 'plain'))
+    msg.attach(MIMEText(html_body, 'html'))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+        logger.info(f"Photographer notified about selections for '{gallery['name']}'")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to notify photographer: {e}")
+        return False
+
+
+# ─── Delivery Download Route ────────────────────────────────────────────────────
+
+@app.route('/delivery/<token>')
+def delivery_download(token):
+    db = get_db()
+    delivery = db.execute('SELECT * FROM deliveries WHERE token = ?', (token,)).fetchone()
+    if not delivery:
+        abort(404)
+
+    gallery = db.execute('SELECT * FROM galleries WHERE id = ?', (delivery['gallery_id'],)).fetchone()
+    if not gallery:
+        abort(404)
+
+    photo_ids = json.loads(delivery['photo_ids'])
+    photos = []
+    for pid in photo_ids:
+        photo = db.execute('SELECT * FROM photos WHERE id = ?', (pid,)).fetchone()
+        if photo:
+            photos.append(photo)
+
+    if not photos:
+        abort(404)
+
+    # Build ZIP of selected photos (full resolution, no watermark)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_STORED) as zf:
+        for photo in photos:
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], photo['filename'])
+            if os.path.exists(filepath):
+                zf.write(filepath, photo['original_name'])
+            elif is_drive_enabled() and photo['drive_file_id']:
+                drive_buffer = download_from_drive(photo['drive_file_id'])
+                zf.writestr(photo['original_name'], drive_buffer.read())
+
+    buffer.seek(0)
+    return send_file(buffer, mimetype='application/zip',
+                     as_attachment=True, download_name=f"{gallery['name']} - Selected Photos.zip")
 
 
 # ─── Static file serving ────────────────────────────────────────────────────────

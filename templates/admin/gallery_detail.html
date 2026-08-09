@@ -92,11 +92,30 @@
 
     {% if photos %}
     <div class="card">
+        {% if selection %}
+        <div style="background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+            <h3 style="color: #2e7d32; margin-bottom: 10px;">✅ Customer Selections Received</h3>
+            <p style="font-size: 14px; color: #333; margin-bottom: 10px;">
+                Submitted {{ selection['submitted_at'][:16] }} • <strong>{{ selected_photo_ids|length }}</strong> photo(s) selected
+            </p>
+            {% if gallery['customer_email'] %}
+            <form method="POST" action="{{ url_for('deliver_selections', gallery_id=gallery['id']) }}" style="margin:0;">
+                <button type="submit" class="btn btn-success" onclick="return confirm('Send {{ selected_photo_ids|length }} selected photos to {{ gallery[\'customer_email\'] }}?')">
+                    📧 Send Selected Photos to {{ gallery['customer_email'] }}
+                </button>
+            </form>
+            {% else %}
+            <p style="font-size: 13px; color: #666;">⚠️ No customer email set — add one to deliver photos.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <h3>Photos ({{ photos|length }})</h3>
         <div class="photo-grid">
             {% for photo in photos %}
-            <div class="photo-item">
-                {% if photo['id'] in favourites %}<span class="fav-badge">❤ {{ favourites[photo['id']] }}</span>{% endif %}
+            <div class="photo-item" {% if photo['id'] in selected_photo_ids %}style="outline: 3px solid #e74c6f; outline-offset: -3px;"{% endif %}>
+                {% if photo['id'] in selected_photo_ids %}<span class="fav-badge">❤ Selected</span>
+                {% elif photo['id'] in favourites %}<span class="fav-badge">❤ {{ favourites[photo['id']] }}</span>{% endif %}
                 <img src="{{ url_for('serve_thumbnail', filename=photo['filename']) }}" alt="{{ photo['original_name'] }}">
                 <div class="overlay">
                     <span>{{ photo['original_name'] }}</span>
