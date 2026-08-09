@@ -625,6 +625,8 @@ def delete_gallery(gallery_id):
         # Delete from Google Drive
         if is_drive_enabled() and photo['drive_file_id']:
             delete_from_drive(photo['drive_file_id'])
+    db.execute('DELETE FROM deliveries WHERE gallery_id = ?', (gallery_id,))
+    db.execute('DELETE FROM selections WHERE gallery_id = ?', (gallery_id,))
     db.execute('DELETE FROM invoices WHERE gallery_id = ?', (gallery_id,))
     db.execute('DELETE FROM favourites WHERE gallery_id = ?', (gallery_id,))
     db.execute('DELETE FROM downloads WHERE gallery_id = ?', (gallery_id,))
@@ -800,15 +802,6 @@ def customer_gallery(token):
         'SELECT * FROM photos WHERE gallery_id = ? ORDER BY uploaded_at', (gallery['id'],)
     ).fetchall()
 
-    download_count = get_download_count(gallery['id'])
-    downloads_remaining = None
-    if gallery['download_limit'] is not None:
-        downloads_remaining = max(0, gallery['download_limit'] - download_count)
-
-    downloaded_ids = [row['photo_id'] for row in db.execute(
-        'SELECT DISTINCT photo_id FROM downloads WHERE gallery_id = ?', (gallery['id'],)
-    ).fetchall()]
-
     # Get favourites for this session
     sid = session.get('_id', session.sid if hasattr(session, 'sid') else 'anon')
     favourite_ids = [row['photo_id'] for row in db.execute(
@@ -940,9 +933,20 @@ def toggle_favourite(token, photo_id):
     if not gallery:
         abort(404)
 
+    if is_gallery_expired(gallery):
+        return jsonify({'error': 'Gallery expired'}), 403
+
     sid = session.get('_id', str(uuid.uuid4()))
     if '_id' not in session:
         session['_id'] = sid
+
+    # Prevent changes after submission
+    already_submitted = db.execute(
+        'SELECT id FROM selections WHERE gallery_id = ? AND session_id = ?',
+        (gallery['id'], sid)
+    ).fetchone()
+    if already_submitted:
+        return jsonify({'error': 'Selections already submitted'}), 400
 
     existing = db.execute(
         'SELECT id FROM favourites WHERE gallery_id = ? AND photo_id = ? AND session_id = ?',
@@ -969,6 +973,12 @@ def submit_selections(token):
     gallery = db.execute('SELECT * FROM galleries WHERE token = ?', (token,)).fetchone()
     if not gallery:
         abort(404)
+
+    # Check expiry and payment
+    if is_gallery_expired(gallery):
+        return jsonify({'error': 'Gallery has expired'}), 403
+    if not is_gallery_paid(gallery):
+        return jsonify({'error': 'Payment required'}), 403
 
     sid = session.get('_id', 'anon')
 
