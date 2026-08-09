@@ -5,11 +5,13 @@ import smtplib
 import zipfile
 import io
 import json
+import logging
 import urllib.parse
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
 from flask import (
     Flask, render_template, request, redirect, url_for,
     flash, send_from_directory, send_file, abort, session, g, jsonify
@@ -26,11 +28,29 @@ from drive_storage import (
     delete_from_drive, make_file_public, get_drive_download_url
 )
 
+# ─── Logging Setup ──────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ─── Background Task Executor ───────────────────────────────────────────────────
+
+executor = ThreadPoolExecutor(max_workers=2)
+
 app = Flask(__name__)
 
 # ─── Configuration ──────────────────────────────────────────────────────────────
 
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
+app.secret_key = os.environ.get('SECRET_KEY')
+if not app.secret_key:
+    if os.environ.get('FLASK_ENV') == 'production':
+        raise RuntimeError("SECRET_KEY environment variable is required in production")
+    app.secret_key = 'dev-secret-change-me'
+    logger.warning("Using default SECRET_KEY — set SECRET_KEY env var for production")
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.dirname(os.path.abspath(__file__)))
 UPLOAD_FOLDER = os.path.join(DATA_DIR, 'uploads')
@@ -55,6 +75,18 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(THUMBNAIL_FOLDER, exist_ok=True)
 
+# ─── Rate Limiting ──────────────────────────────────────────────────────────────
+
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per hour"],
+    storage_uri="memory://"
+)
+
 
 # ─── Database ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +94,8 @@ def get_db():
     if 'db' not in g:
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
+        g.db.execute('PRAGMA journal_mode=WAL')
+        g.db.execute('PRAGMA foreign_keys=ON')
     return g.db
 
 
@@ -135,6 +169,14 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (gallery_id) REFERENCES galleries(id)
         );
+
+        -- Performance indexes
+        CREATE INDEX IF NOT EXISTS idx_photos_gallery ON photos(gallery_id);
+        CREATE INDEX IF NOT EXISTS idx_downloads_gallery ON downloads(gallery_id);
+        CREATE INDEX IF NOT EXISTS idx_downloads_gallery_photo ON downloads(gallery_id, photo_id);
+        CREATE INDEX IF NOT EXISTS idx_favourites_gallery_session ON favourites(gallery_id, session_id);
+        CREATE INDEX IF NOT EXISTS idx_galleries_token ON galleries(token);
+        CREATE INDEX IF NOT EXISTS idx_invoices_gallery ON invoices(gallery_id);
     ''')
     db.commit()
 
@@ -169,28 +211,40 @@ def is_gallery_paid(gallery):
 
 def create_thumbnail(filepath, filename):
     thumb_path = os.path.join(THUMBNAIL_FOLDER, filename)
-    with Image.open(filepath) as img:
-        img.thumbnail((600, 600))
-        if WATERMARK_TEXT:
-            draw = ImageDraw.Draw(img)
-            width, height = img.size
-            font_size = max(20, min(width, height) // 8)
-            try:
-                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-            except (OSError, IOError):
-                try:
-                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-                except (OSError, IOError):
-                    font = ImageFont.load_default()
-            bbox = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-            x = (width - text_width) // 2
-            y = (height - text_height) // 2
-            draw.text((x + 2, y + 2), WATERMARK_TEXT, font=font, fill=(0, 0, 0, 80))
-            draw.text((x, y), WATERMARK_TEXT, font=font, fill=(255, 255, 255, 100))
-        img.save(thumb_path, quality=85)
+    try:
+        with Image.open(filepath) as img:
+            img.thumbnail((600, 600))
+            if WATERMARK_TEXT:
+                draw = ImageDraw.Draw(img)
+                width, height = img.size
+                font_size = max(20, min(width, height) // 8)
+                font = _get_watermark_font(font_size)
+                bbox = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+                x = (width - text_width) // 2
+                y = (height - text_height) // 2
+                draw.text((x + 2, y + 2), WATERMARK_TEXT, font=font, fill=(0, 0, 0, 80))
+                draw.text((x, y), WATERMARK_TEXT, font=font, fill=(255, 255, 255, 100))
+            img.save(thumb_path, quality=85)
+    except Exception as e:
+        logger.error(f"Thumbnail creation failed for {filename}: {e}")
     return thumb_path
+
+
+_font_cache = {}
+
+def _get_watermark_font(size):
+    """Cache fonts to avoid repeated disk reads."""
+    if size not in _font_cache:
+        try:
+            _font_cache[size] = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size)
+        except (OSError, IOError):
+            try:
+                _font_cache[size] = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+            except (OSError, IOError):
+                _font_cache[size] = ImageFont.load_default()
+    return _font_cache[size]
 
 
 def get_download_count(gallery_id):
@@ -222,9 +276,10 @@ def send_gallery_email(to_email, gallery_name, share_url):
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
+        logger.info(f"Email sent to {to_email} for gallery '{gallery_name}'")
         return True
     except Exception as e:
-        print(f"Email error: {e}")
+        logger.error(f"Email error sending to {to_email}: {e}")
         return False
 
 
@@ -245,6 +300,7 @@ def get_whatsapp_link(share_url, gallery_name):
 # ─── Admin Auth Routes ──────────────────────────────────────────────────────────
 
 @app.route('/admin/login', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
 def admin_login():
     db = get_db()
     user_count = db.execute('SELECT COUNT(*) as c FROM users').fetchone()['c']
@@ -480,7 +536,9 @@ def upload_photos(gallery_id):
             filename = f"{uuid.uuid4().hex}.{ext}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
-            create_thumbnail(filepath, filename)
+
+            # Generate thumbnail in background
+            executor.submit(create_thumbnail, filepath, filename)
 
             # Upload to Google Drive if enabled
             drive_file_id = None
@@ -491,7 +549,7 @@ def upload_photos(gallery_id):
                     drive_file_id = upload_to_drive(filepath, filename, mimetype)
                     make_file_public(drive_file_id)
                 except Exception as e:
-                    print(f"Drive upload error: {e}")
+                    logger.error(f"Drive upload error for {filename}: {e}")
 
             db.execute(
                 'INSERT INTO photos (gallery_id, filename, original_name, drive_file_id) VALUES (?, ?, ?, ?)',
@@ -585,6 +643,7 @@ def mark_paid(gallery_id):
 # ─── Customer Routes ────────────────────────────────────────────────────────────
 
 @app.route('/gallery/<token>/auth', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
 def gallery_auth(token):
     db = get_db()
     gallery = db.execute('SELECT * FROM galleries WHERE token = ?', (token,)).fetchone()
@@ -714,6 +773,12 @@ def download_zip(token):
     if not photo_ids:
         return jsonify({'error': 'No photos selected'}), 400
 
+    # Validate photo_ids are integers
+    try:
+        photo_ids = [int(pid) for pid in photo_ids]
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid photo IDs'}), 400
+
     # Check download limit
     already_downloaded = set(row['photo_id'] for row in db.execute(
         'SELECT DISTINCT photo_id FROM downloads WHERE gallery_id = ?', (gallery['id'],)
@@ -726,9 +791,9 @@ def download_zip(token):
         if current_count + len(new_downloads) > gallery['download_limit']:
             return jsonify({'error': 'Would exceed download limit'}), 403
 
-    # Build zip
+    # Build zip (ZIP_STORED — JPEGs are already compressed, no CPU wasted)
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_STORED) as zf:
         for pid in photo_ids:
             photo = db.execute(
                 'SELECT * FROM photos WHERE id = ? AND gallery_id = ?', (pid, gallery['id'])
@@ -784,7 +849,10 @@ def toggle_favourite(token, photo_id):
 
 @app.route('/uploads/thumbnails/<filename>')
 def serve_thumbnail(filename):
-    return send_from_directory(THUMBNAIL_FOLDER, filename)
+    response = send_from_directory(THUMBNAIL_FOLDER, filename)
+    response.cache_control.max_age = 86400 * 30  # 30 days
+    response.cache_control.public = True
+    return response
 
 
 @app.route('/')
